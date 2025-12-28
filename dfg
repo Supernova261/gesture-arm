@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Gesture Controlled Robotic Arm</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<style>
+body {
+  margin: 0;
+  background: #0b0f1a;
+  color: white;
+  font-family: system-ui;
+  text-align: center;
+}
+h1 { margin: 10px; }
+video {
+  width: 90%;
+  max-width: 420px;
+  border-radius: 15px;
+  margin-bottom: 10px;
+}
+.slider {
+  width: 90%;
+}
+.label {
+  display: flex;
+  justify-content: space-between;
+  width: 90%;
+  margin: auto;
+}
+</style>
+</head>
+
+<body>
+<h1>Gesture Robotic Arm</h1>
+<video id="video" autoplay></video>
+
+<div class="label"><span>Base</span><span id="baseVal">90</span></div>
+<input class="slider" type="range" min="0" max="180" id="base">
+
+<div class="label"><span>Shoulder</span><span id="shoulderVal">90</span></div>
+<input class="slider" type="range" min="0" max="180" id="shoulder">
+
+<div class="label"><span>Claw</span><span id="clawVal">10</span></div>
+<input class="slider" type="range" min="10" max="50" id="claw">
+
+<script>
+const ESP_IP = "192.168.4.1";   // ESP32 AP IP
+
+const video = document.getElementById("video");
+
+navigator.mediaDevices.getUserMedia({ video: true })
+  .then(stream => video.srcObject = stream)
+  .catch(err => alert("Camera error: " + err));
+
+function send(servo, value) {
+  fetch(`http://${ESP_IP}/move?servo=${servo}&value=${value}`)
+    .catch(()=>{});
+}
+
+function map(v, a1, a2, b1, b2) {
+  return b1 + (v - a1) * (b2 - b1) / (a2 - a1);
+}
+
+const hands = new Hands({
+  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+});
+
+hands.setOptions({
+  maxNumHands: 1,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.7
+});
+
+hands.onResults(r => {
+  if (!r.multiHandLandmarks) return;
+  const lm = r.multiHandLandmarks[0];
+
+  const x = lm[9].x;
+  const y = lm[9].y;
+  const curl = Math.hypot(lm[8].x - lm[0].x, lm[8].y - lm[0].y);
+
+  const base = Math.round(map(x, 0.2, 0.8, 0, 180));
+  const shoulder = Math.round(map(y, 0.8, 0.2, 0, 180));
+  const claw = Math.round(map(curl, 0.35, 0.15, 10, 50));
+
+  document.getElementById("base").value = base;
+  document.getElementById("shoulder").value = shoulder;
+  document.getElementById("claw").value = claw;
+
+  document.getElementById("baseVal").innerText = base;
+  document.getElementById("shoulderVal").innerText = shoulder;
+  document.getElementById("clawVal").innerText = claw;
+
+  send("base", base);
+  send("shoulder", shoulder);
+  send("claw", claw);
+});
+
+const cam = new Camera(video, {
+  onFrame: async () => await hands.send({ image: video }),
+  width: 640,
+  height: 480
+});
+cam.start();
+</script>
+</body>
+</html>
